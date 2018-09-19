@@ -442,6 +442,7 @@ MulticopterAttitudeControl::control_attitude(float dt)
 	 * This yields a vector representing the commanded rotatation around the world z-axis expressed in the body frame
 	 * such that it can be added to the rates setpoint.
 	 */
+	// CDC2018: Yaw FF should be disabled since our controller already incorporate it
 	Vector3f yaw_feedforward_rate = q.inversed().dcm_z();
 	yaw_feedforward_rate *= _v_att_sp.yaw_sp_move_rate * _yaw_ff.get();
 	_rates_sp += yaw_feedforward_rate;
@@ -551,15 +552,15 @@ MulticopterAttitudeControl::control_attitude_rates(float dt)
 		_lp_filters_d[2].apply(_rates_sp(2)));
 
 	/* CDC2018 nonlinear torque controller*/
-	Vector3f inertia({0.1339f,0.2522f,0.3462f}); // Inertia tensor (diagonal)
+	Vector3f scaled_inertia = rates_d_scaled; // Inertia tensor (diagonal)
 	Vector3f rates_sp_dot = (rates_sp_filtered - _rates_sp_prev_filtered)/dt;
-	inertia = inertia.emult(rates_d_scaled);
 
 	/* CDC2018 Jwdot - Jw x wr - Ks - k qv*/
-	_att_control = inertia.emult(rates_sp_dot) +
-				(_rates_sp % (inertia.emult(rates))) +
+	_att_control = scaled_inertia.emult(rates_sp_dot) +
+				(_rates_sp % (scaled_inertia.emult(rates))) +
 				rates_p_scaled.emult(rates_err) -
-				rates_i_scaled.emult(_qv_prev);
+				(rates_i_scaled.emult(_qv_prev) * 0.1) +
+				_rates_int;
 	/* OLD CTRL
 	_att_control = rates_p_scaled.emult(rates_err) +
 		       _rates_int -
