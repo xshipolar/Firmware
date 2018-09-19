@@ -57,6 +57,8 @@
 #include <drivers/drv_hrt.h>
 #include <systemlib/hysteresis/hysteresis.h>
 
+#include <uORB/Subscription.hpp>
+#include <uORB/topics/airspeed.h>
 #include <uORB/topics/home_position.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/parameter_update.h>
@@ -150,6 +152,11 @@ private:
 	int		_local_pos_sub;			/**< vehicle local position */
 	int		_pos_sp_triplet_sub;		/**< position setpoint triplet */
 	int		_home_pos_sub; 			/**< home position */
+
+	uORB::Subscription<airspeed_s> _sub_airspeed;	/**< CDC2018: Add airspeed sub*/
+	bool _airspeed_valid{false};			///< flag if a valid airspeed estimate exists
+	hrt_abstime _airspeed_last_received{0};		///< last time airspeed was received. Used to detect timeouts.
+	float _airspeed{0.0f};
 
 	orb_advert_t	_att_sp_pub;			/**< attitude setpoint publication */
 	orb_advert_t	_local_pos_sp_pub;		/**< vehicle local position setpoint publication */
@@ -442,6 +449,7 @@ MulticopterPositionControl::MulticopterPositionControl() :
 	_local_pos_sub(-1),
 	_pos_sp_triplet_sub(-1),
 	_home_pos_sub(-1),
+	_sub_airspeed(ORB_ID(airspeed)),
 
 	/* publications */
 	_att_sp_pub(nullptr),
@@ -720,6 +728,20 @@ MulticopterPositionControl::poll_subscriptions()
 		// update the reset counters in any case
 		_z_reset_counter = _local_pos.z_reset_counter;
 		_xy_reset_counter = _local_pos.xy_reset_counter;
+	}
+
+	/* CDC2018: implementation of airspeed_poll */
+	if (_sub_airspeed.updated()) {
+		_sub_airspeed.update();
+		_airspeed_valid = PX4_ISFINITE(_sub_airspeed.get().indicated_airspeed_m_s)
+				  && PX4_ISFINITE(_sub_airspeed.get().true_airspeed_m_s);
+		_airspeed_last_received = hrt_absolute_time();
+		_airspeed = _sub_airspeed.get().indicated_airspeed_m_s;
+	} else {
+		/* no airspeed updates for one second */
+		if (_airspeed_valid && (hrt_absolute_time() - _airspeed_last_received) > 1e6) {
+			_airspeed_valid = false;
+		}
 	}
 
 	orb_check(_pos_sp_triplet_sub, &updated);
