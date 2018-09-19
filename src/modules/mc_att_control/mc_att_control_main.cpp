@@ -116,8 +116,10 @@ MulticopterAttitudeControl::MulticopterAttitudeControl() :
 	_v_att_sp.q_d[0] = 1.f;
 
 	_qd_prev.zero();
+	_qv_prev.zero();
+	_rates_sp_prev.zero();
 	_rates_prev.zero();
-	_rates_prev_filtered.zero();
+	_rates_sp_prev_filtered.zero();
 	_rates_sp.zero();
 	_rates_int.zero();
 	_thrust_sp = 0.0f;
@@ -167,9 +169,9 @@ MulticopterAttitudeControl::parameters_updated()
 		_lp_filters_d[0].set_cutoff_frequency(_loop_update_rate_hz, _d_term_cutoff_freq.get());
 		_lp_filters_d[1].set_cutoff_frequency(_loop_update_rate_hz, _d_term_cutoff_freq.get());
 		_lp_filters_d[2].set_cutoff_frequency(_loop_update_rate_hz, _d_term_cutoff_freq.get());
-		_lp_filters_d[0].reset(_rates_prev(0));
-		_lp_filters_d[1].reset(_rates_prev(1));
-		_lp_filters_d[2].reset(_rates_prev(2));
+		_lp_filters_d[0].reset(_rates_sp_prev(0));
+		_lp_filters_d[1].reset(_rates_sp_prev(1));
+		_lp_filters_d[2].reset(_rates_sp_prev(2));
 	}
 
 	/* angular rate limits */
@@ -429,6 +431,7 @@ MulticopterAttitudeControl::control_attitude(float dt)
 //	_rates_sp = eq.emult(attitude_gain);
 	_rates_sp = Rerr * rates_d - 2.f*qv.emult(attitude_gain); // wr = Rerr' * wd - 2 * Lam * qv
 	_qd_prev = qd;
+	_qv_prev = qv;
 	// *** END CONTROL *** //
 
 	/* Feed forward the yaw setpoint rate.
@@ -542,18 +545,31 @@ MulticopterAttitudeControl::control_attitude_rates(float dt)
 	Vector3f rates_err = _rates_sp - rates;
 
 	/* apply low-pass filtering to the rates for D-term */
-	Vector3f rates_filtered(
-		_lp_filters_d[0].apply(rates(0)),
-		_lp_filters_d[1].apply(rates(1)),
-		_lp_filters_d[2].apply(rates(2)));
+	Vector3f rates_sp_filtered(
+		_lp_filters_d[0].apply(_rates_sp(0)),
+		_lp_filters_d[1].apply(_rates_sp(1)),
+		_lp_filters_d[2].apply(_rates_sp(2)));
 
+	/* CDC2018 nonlinear torque controller*/
+	Vector3f inertia({0.1339f,0.2522f,0.3462f}); // Inertia tensor (diagonal)
+	Vector3f rates_sp_dot = (rates_sp_filtered - _rates_sp_prev_filtered)/dt;
+	inertia = inertia.emult(rates_d_scaled);
+
+	/* CDC2018 Jwdot - Jw x wr - Ks - k qv*/
+	_att_control = inertia.emult(rates_sp_dot) +
+				(_rates_sp % (inertia.emult(rates))) +
+				rates_p_scaled.emult(rates_err) -
+				rates_i_scaled.emult(_qv_prev);
+	/* OLD CTRL
 	_att_control = rates_p_scaled.emult(rates_err) +
 		       _rates_int -
-		       rates_d_scaled.emult(rates_filtered - _rates_prev_filtered) / dt +
-		       _rate_ff.emult(_rates_sp);
+			   rates_d_scaled.emult(rates_filtered - _rates_prev_filtered) / dt +
+			   _rate_ff.emult(_rates_sp);
+	*/
 
+	_rates_sp_prev = _rates_sp;
 	_rates_prev = rates;
-	_rates_prev_filtered = rates_filtered;
+	_rates_sp_prev_filtered = rates_sp_filtered;
 
 	/* update integral only if motors are providing enough thrust to be effective */
 	if (_thrust_sp > MIN_TAKEOFF_THRUST) {

@@ -170,8 +170,10 @@ private:
 	float _loop_update_rate_hz{initial_update_rate_hz};          /**< current rate-controller loop update rate in [Hz] */
 
 	matrix::Quatf _qd_prev;			/**< CDC2018: previous desired quaternion */
+	matrix::Vector3f _qv_prev;			/**< CDC2018: qv vector quat error used for backstep*/
+	matrix::Vector3f _rates_sp_prev;			/**< CDC2018: previous reference rates*/
 	matrix::Vector3f _rates_prev;			/**< angular rates on previous step */
-	matrix::Vector3f _rates_prev_filtered;		/**< angular rates on previous step (low-pass filtered) */
+	matrix::Vector3f _rates_sp_prev_filtered;		/**< CDC2018 angular rates setpoint on previous step (low-pass filtered) */
 	matrix::Vector3f _rates_sp;			/**< angular rates setpoint */
 	matrix::Vector3f _rates_int;			/**< angular rates integral error */
 	float _thrust_sp;				/**< thrust setpoint */
