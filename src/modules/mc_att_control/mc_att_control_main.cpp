@@ -115,6 +115,7 @@ MulticopterAttitudeControl::MulticopterAttitudeControl() :
 	_v_att.q[0] = 1.f;
 	_v_att_sp.q_d[0] = 1.f;
 
+	_qd_prev.zero();
 	_rates_prev.zero();
 	_rates_prev_filtered.zero();
 	_rates_sp.zero();
@@ -408,14 +409,27 @@ MulticopterAttitudeControl::control_attitude(float dt)
 	qd = qd_red * Quatf(cosf(yaw_w * acosf(q_mix(0))), 0, 0, sinf(yaw_w * asinf(q_mix(3))));
 
 	/* quaternion attitude control law, qe is rotation from q to qd */
-	Quatf qe = q.inversed() * qd;
+	Quatf qe = q.inversed() * qd; // CDC2018 (Old): qe = -qerr in paper
+	Dcmf Rerr(qe); // CDC2018 (Xichen): Rerr' (transform D to B) transpose of Rtilde in paper
 
 	/* using sin(alpha/2) scaled rotation axis as attitude error (see quaternion definition by axis angle)
 	 * also taking care of the antipodal unit quaternion ambiguity */
-	Vector3f eq = 2.f * math::signNoZero(qe(0)) * qe.imag();
+//	Vector3f eq = 2.f * math::signNoZero(qe(0)) * qe.imag(); // CDC2018 (Old): eq = -2*qv in paper
+	// *** CDC2018 (Glocal Quat Att Ctrl) ***
+	Vector3f qv =  -1.f * math::signNoZero(qe(0)) * qe.imag(); // CDC2018 (Xichen): qv in paper
+
+	/* CDC2018 calculate desired angular rate */
+	Quatf dqd = (qd - _qd_prev)/dt;
+	Vector3f rates_d;
+	rates_d(0) = -qd(1)*dqd(0) + qd(0)*dqd(1) + qd(3)*dqd(2) - qd(2)*dqd(3);
+	rates_d(1) = -qd(2)*dqd(0) - qd(3)*dqd(1) + qd(0)*dqd(2) + qd(1)*dqd(3);
+	rates_d(2) = -qd(3)*dqd(0) + qd(2)*dqd(1) - qd(1)*dqd(2) + qd(0)*dqd(3);
 
 	/* calculate angular rates setpoint */
-	_rates_sp = eq.emult(attitude_gain);
+//	_rates_sp = eq.emult(attitude_gain);
+	_rates_sp = Rerr * rates_d - 2.f*qv.emult(attitude_gain); // wr = Rerr' * wd - 2 * Lam * qv
+	_qd_prev = qd;
+	// *** END CONTROL *** //
 
 	/* Feed forward the yaw setpoint rate.
 	 * The yaw_feedforward_rate is a commanded rotation around the world z-axis,
