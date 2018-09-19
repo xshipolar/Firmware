@@ -99,6 +99,7 @@ To reduce control latency, the module directly polls on the gyro topic published
 
 MulticopterAttitudeControl::MulticopterAttitudeControl() :
 	ModuleParams(nullptr),
+	_sub_airspeed(ORB_ID(airspeed)),
 	_loop_perf(perf_alloc(PC_ELAPSED, "mc_att_control")),
 	_lp_filters_d{
 	{initial_update_rate_hz, 50.f},
@@ -304,6 +305,24 @@ MulticopterAttitudeControl::vehicle_motor_limits_poll()
 		orb_copy(ORB_ID(multirotor_motor_limits), _motor_limits_sub, &motor_limits);
 
 		_saturation_status.value = motor_limits.saturation_status;
+	}
+}
+
+/* CDC2018: implementation of airspeed_poll */
+void
+MulticopterAttitudeControl::airspeed_poll()
+{
+	if (_sub_airspeed.updated()) {
+		_sub_airspeed.update();
+		_airspeed_valid = PX4_ISFINITE(_sub_airspeed.get().indicated_airspeed_m_s)
+				  && PX4_ISFINITE(_sub_airspeed.get().true_airspeed_m_s);
+		_airspeed_last_received = hrt_absolute_time();
+		_airspeed = _sub_airspeed.get().indicated_airspeed_m_s;
+	} else {
+		/* no airspeed updates for one second */
+		if (_airspeed_valid && (hrt_absolute_time() - _airspeed_last_received) > 1e6) {
+			_airspeed_valid = false;
+		}
 	}
 }
 
@@ -701,6 +720,7 @@ MulticopterAttitudeControl::run()
 			vehicle_status_poll();
 			vehicle_motor_limits_poll();
 			battery_status_poll();
+			airspeed_poll();
 			vehicle_attitude_poll();
 			sensor_correction_poll();
 			sensor_bias_poll();

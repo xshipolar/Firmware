@@ -31,6 +31,7 @@
  *
  ****************************************************************************/
 
+#include <drivers/drv_hrt.h>
 #include <lib/mixer/mixer.h>
 #include <mathlib/math/filter/LowPassFilter2p.hpp>
 #include <matrix/matrix/math.hpp>
@@ -41,6 +42,8 @@
 #include <px4_module_params.h>
 #include <px4_posix.h>
 #include <px4_tasks.h>
+#include <uORB/Subscription.hpp>
+#include <uORB/topics/airspeed.h>
 #include <uORB/topics/actuator_controls.h>
 #include <uORB/topics/battery_status.h>
 #include <uORB/topics/manual_control_setpoint.h>
@@ -96,6 +99,7 @@ private:
 	/**
 	 * Check for parameter update and handle it.
 	 */
+	void		airspeed_poll(); // CDC2018 added airspeed poll
 	void		battery_status_poll();
 	void		parameter_update_poll();
 	void		sensor_bias_poll();
@@ -136,6 +140,11 @@ private:
 	int		_sensor_gyro_sub[MAX_GYRO_COUNT];	/**< gyro data subscription */
 	int		_sensor_correction_sub{-1};	/**< sensor thermal correction subscription */
 	int		_sensor_bias_sub{-1};		/**< sensor in-run bias correction subscription */
+
+	uORB::Subscription<airspeed_s> _sub_airspeed;	/**< CDC2018: Add airspeed sub*/
+	bool _airspeed_valid{false};				///< flag if a valid airspeed estimate exists
+	hrt_abstime _airspeed_last_received{0};			///< last time airspeed was received. Used to detect timeouts.
+	float _airspeed{0.0f};
 
 	unsigned _gyro_count{1};
 	int _selected_gyro{0};
