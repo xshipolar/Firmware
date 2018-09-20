@@ -297,7 +297,44 @@ mixer_tick(void)
 		}
 
 		/* mix */
-		mixed = mixer_mix_threadsafe(&outputs[0], &r_mixer_limits);
+		// mixed = mixer_mix_threadsafe(&outputs[0], &r_mixer_limits);
+		/* CDC2018: Replace with custom mixing*/
+		// Group 0 controls
+		float roll, pitch, yaw, thrust;
+		mixer_callback(0, 0, 0, roll);
+		mixer_callback(0, 0, 1, pitch);
+		mixer_callback(0, 0, 2, yaw);
+		mixer_callback(0, 0, 3, thrust);
+		// Group 3 pass throughs
+		float tilt, back_thrust;
+		mixer_callback(0, 3, 6, tilt);		// AUX2 on PX4 [-1,1]
+		mixer_callback(0, 3, 7, back_thrust);	// AUX3 on PX4 [-1,1]
+		float delta = tilt * M_PI_2_F/2.0f + M_PI_2_F/2.0f;
+		float fx = (back_thrust+1.0f)/2.0f;	// force in x [0,1]
+		// Config 0, variable tilts Bmatrix
+		float Binv[8][4] = {{ (0.662f*powf(cosf(delta),2) + 0.0563f)/(1.3f*powf(cosf(delta),2) + 0.49f), -(1.65f*powf(sinf(delta),2) - 0.246f*sinf(2.0f*delta) + 0.0849f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f),   (0.49f*powf(cosf(delta),2) + 0.451f)/(1.3f*powf(cosf(delta),2) + 0.49f),  (0.0405f*sinf(2.0f*delta) + 0.0242f*powf(sinf(delta),2) - 0.0646f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f)},
+				    {                  (0.733f*cosf(delta)) /(1.3f*powf(cosf(delta),2) + 0.49f),                       -(0.0275f*cosf(delta) - 0.101f*sinf(delta))/(0.177f*sinf(2.0f*delta) + 1.26f*powf(cosf(delta),2) - 1.34f),                   -(1.02f*cosf(delta))/(1.3f*powf(cosf(delta),2) + 0.49f),                           (0.0429f*cosf(delta) - 0.311f*sinf(delta))/(0.177f*sinf(2.0f*delta) + 1.26f*powf(cosf(delta),2) - 1.34f)},
+				    {  (0.476f*powf(cosf(delta),2) + 0.246f)/(1.3f*powf(cosf(delta),2) + 0.49f),  -(1.69f*powf(sinf(delta),2) - 0.165f*sinf(2.0f*delta) + 0.115f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f), (0.352f*powf(cosf(delta),2) + 0.0385f)/(1.3f*powf(cosf(delta),2) + 0.49f),  (0.0415f*sinf(2.0f*delta) + 0.0162f*powf(sinf(delta),2) + 0.0949f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f)},
+				    {                  (0.733f*cosf(delta)) /(1.3f*powf(cosf(delta),2) + 0.49f),                        (0.0275f*cosf(delta) - 0.101f*sinf(delta))/(0.177f*sinf(2.0f*delta) + 1.26f*powf(cosf(delta),2) - 1.34f),                   -(1.02f*cosf(delta))/(1.3f*powf(cosf(delta),2) + 0.49f),                          -(0.0429f*cosf(delta) - 0.311f*sinf(delta))/(0.177f*sinf(2.0f*delta) + 1.26f*powf(cosf(delta),2) - 1.34f)},
+				    { (0.662f*powf(cosf(delta),2) + 0.0563f)/(1.3f*powf(cosf(delta),2) + 0.49f),  (1.65f*powf(sinf(delta),2) - 0.246f*sinf(2.0f*delta) + 0.0849f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f),   (0.49f*powf(cosf(delta),2) + 0.451f)/(1.3f*powf(cosf(delta),2) + 0.49f), -(0.0405f*sinf(2.0f*delta) + 0.0242f*powf(sinf(delta),2) - 0.0646f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f)},
+				    {   (0.238f*powf(cosf(delta),2) + 0.49f)/(1.3f*powf(cosf(delta),2) + 0.49f),  (1.65f*powf(sinf(delta),2) - 0.246f*sinf(2.0f*delta) + 0.0849f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f),   (0.176f*powf(cosf(delta),2) - 0.49f)/(1.3f*powf(cosf(delta),2) + 0.49f), -(0.0405f*sinf(2.0f*delta) + 0.0242f*powf(sinf(delta),2) - 0.0646f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f)},
+				    {  (0.476f*powf(cosf(delta),2) + 0.246f)/(1.3f*powf(cosf(delta),2) + 0.49f),   (1.69f*powf(sinf(delta),2) - 0.165f*sinf(2.0f*delta) + 0.115f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f), (0.352f*powf(cosf(delta),2) + 0.0385f)/(1.3f*powf(cosf(delta),2) + 0.49f), -(0.0415f*sinf(2.0f*delta) + 0.0162f*powf(sinf(delta),2) + 0.0949f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f)},
+				    {   (0.238f*powf(cosf(delta),2) + 0.49f)/(1.3f*powf(cosf(delta),2) + 0.49f), -(1.65f*powf(sinf(delta),2) - 0.246f*sinf(2.0f*delta) + 0.0849f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f),   (0.176f*powf(cosf(delta),2) - 0.49f)/(1.3f*powf(cosf(delta),2) + 0.49f),  (0.0405f*sinf(2.0f*delta) + 0.0242f*powf(sinf(delta),2) - 0.0646f)/(2.52f*powf(sinf(delta),2) - 0.354f*sinf(2.0f*delta) + 0.156f)}
+				   };
+		// Custom mixing
+		mixed = 8; // number of mixed outputs
+		in_mixer = true;
+		if ((r_status_flags & PX4IO_P_STATUS_FLAGS_MIXER_OK) != 0) {
+			for (unsigned i = 0; i < mixed; i++) {
+				outputs[i] = Binv[i][0]*thrust*2.5f + Binv[i][1]*roll + Binv[i][2]*pitch + Binv[i][3]*yaw ;
+				if (i==1 || i==3) { // Back thrusters
+					outputs[i] += fx*sinf(delta);
+				}
+				outputs[i] =  -1.0f + 2.0f*outputs[i]; // output scale is eventually -1 to 1
+			}
+		}
+		in_mixer = false;
+		/* END: CDC2018: Replace with custom mixing*/				   
 
 		/* the pwm limit call takes care of out of band errors */
 		pwm_limit_calc(should_arm, should_arm_nothrottle, mixed, r_setup_pwm_reverse, r_page_servo_disarmed,
