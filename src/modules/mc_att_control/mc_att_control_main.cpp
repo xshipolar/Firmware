@@ -431,7 +431,7 @@ MulticopterAttitudeControl::control_attitude(float dt)
 
 	/* quaternion attitude control law, qe is rotation from q to qd */
 	Quatf qe = q.inversed() * qd; // CDC2018 (Old): qe = -qerr in paper
-	Dcmf Rerr(qe); // CDC2018 (Xichen): Rerr' (transform D to B) transpose of Rtilde in paper
+//	Dcmf Rerr(qe); // CDC2018 (Xichen): Rerr' (transform D to B) transpose of Rtilde in paper
 
 	/* using sin(alpha/2) scaled rotation axis as attitude error (see quaternion definition by axis angle)
 	 * also taking care of the antipodal unit quaternion ambiguity */
@@ -440,15 +440,19 @@ MulticopterAttitudeControl::control_attitude(float dt)
 	Vector3f qv =  -1.f * math::signNoZero(qe(0)) * qe.imag(); // CDC2018 (Xichen): qv in paper
 
 	/* CDC2018 calculate desired angular rate */
-	Quatf dqd = (qd - _qd_prev)/dt;
-	Vector3f rates_d;
-	rates_d(0) = -qd(1)*dqd(0) + qd(0)*dqd(1) + qd(3)*dqd(2) - qd(2)*dqd(3);
-	rates_d(1) = -qd(2)*dqd(0) - qd(3)*dqd(1) + qd(0)*dqd(2) + qd(1)*dqd(3);
-	rates_d(2) = -qd(3)*dqd(0) + qd(2)*dqd(1) - qd(1)*dqd(2) + qd(0)*dqd(3);
+	// FF desired omega isn't working yet, verify why ??
+//	Quatf diffq = _qd_prev.inversed() * qd;
+//	diffq.normalize();
+//	Vector<float,4> dqd = diffq/dt;
+//	Vector3f rates_d;
+//	rates_d(0) = -qd(1)*dqd(0) + qd(0)*dqd(1) + qd(3)*dqd(2) - qd(2)*dqd(3);
+//	rates_d(1) = -qd(2)*dqd(0) - qd(3)*dqd(1) + qd(0)*dqd(2) + qd(1)*dqd(3);
+//	rates_d(2) = -qd(3)*dqd(0) + qd(2)*dqd(1) - qd(1)*dqd(2) + qd(0)*dqd(3);
 
 	/* calculate angular rates setpoint */
 //	_rates_sp = eq.emult(attitude_gain);
-	_rates_sp = Rerr * rates_d - 2.f*qv.emult(attitude_gain); // wr = Rerr' * wd - 2 * Lam * qv
+//	_rates_sp = Rerr * rates_d - 2.f*qv.emult(attitude_gain); // wr = Rerr' * wd - 2 * Lam * qv
+	_rates_sp = - 2.f*qv.emult(attitude_gain);
 	_qd_prev = qd;
 	_qv_prev = qv;
 	// *** END CONTROL *** //
