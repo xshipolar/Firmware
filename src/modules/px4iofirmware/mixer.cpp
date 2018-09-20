@@ -326,6 +326,8 @@ mixer_tick(void)
 		in_mixer = true;
 		if ((r_status_flags & PX4IO_P_STATUS_FLAGS_MIXER_OK) != 0) {
 			for (unsigned i = 0; i < mixed; i++) {
+				pitch += 0.5f*fx*sinf(delta)*cosf(delta); //compensate for moment generation from fx (when T=fx*sin(delta))
+				thrust -= 0.5f*fx*sinf(delta)*cosf(delta);//compensate for fz generation from fx (when T=fx*sin(delta))
 				outputs[i] = Binv[i][0]*thrust*2.5f + Binv[i][1]*roll + Binv[i][2]*pitch + Binv[i][3]*yaw ;
 				if (i==1 || i==3) { // Back thrusters
 					outputs[i] += fx*sinf(delta);
