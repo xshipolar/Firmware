@@ -67,6 +67,7 @@ extern "C" {
  * Maximum interval in us before FMU signal is considered lost
  */
 #define FMU_INPUT_DROP_LIMIT_US		500000
+#define NAN_VALUE	(0.0f/0.0f)
 
 /* current servo arm/disarm state */
 static volatile bool mixer_servos_armed = false;
@@ -103,10 +104,90 @@ int mixer_mix_threadsafe(float *outputs, volatile uint16_t *limits)
 		return 0;
 	}
 
+	// START: original
+	// in_mixer = true;
+	// int mixcount = mixer_group.mix(&outputs[0], PX4IO_SERVO_COUNT);
+	// *limits = mixer_group.get_saturation_status();
+	// in_mixer = false;
+	// END: original
+
+	/* START: SCI-TECH-2018: Replace with custom mixing*/
 	in_mixer = true;
-	int mixcount = mixer_group.mix(&outputs[0], PX4IO_SERVO_COUNT);
-	*limits = mixer_group.get_saturation_status();
+	// Group 0 controls
+	float roll, pitch, yaw, thrust;
+	mixer_callback(0, 0, 0, roll);
+	mixer_callback(0, 0, 1, pitch);
+	mixer_callback(0, 0, 2, yaw);
+	mixer_callback(0, 0, 3, thrust);
+	// Group 3 pass throughs
+	float fail_switch, tilt_switch;
+	mixer_callback(0, 3, 5, fail_switch);    // AUX1 on PX4 [-1,1]
+	mixer_callback(0, 3, 6, tilt_switch);	// AUX2 on PX4 [-1,1]
+	// Config - no tilt / no fail
+	float Binv[8][4] = {{0.9565f,-0.7391f, 0.9355f, 0.6809f}, 
+			    {1.0000f, 0.4783f,-1.0000f, 0.9043f}, 
+			    {0.9783f,-1.0000f, 0.3763f,-1.0000f}, 
+			    {1.0000f,-0.4783f,-1.0000f,-0.9043f}, 
+			    {0.9565f, 0.7391f, 0.9355f,-0.6809f}, 
+			    {0.9783f, 0.7391f,-0.3118f,-0.6809f}, 
+			    {0.9783f, 1.0000f, 0.3763f, 1.0000f}, 
+			    {0.9783f,-0.7391f,-0.3118f, 0.6809f}, 
+			   };
+	// Config - tilt / no fail
+	float Binv_tilt[8][4] = {{0.9016f,-0.4991f, 0.9586f, 0.7608f}, 
+				 {1.0000f, 0.4304f,-1.0000f, 0.5785f}, 
+				 {0.9508f,-1.0000f, 0.3888f,-1.0000f}, 
+				 {1.0000f,-0.4304f,-1.0000f,-0.5785f}, 
+				 {0.9016f, 0.4991f, 0.9586f,-0.7608f}, 
+				 {0.9508f, 0.5997f,-0.3486f,-0.4833f}, 
+				 {0.9508f, 1.0000f, 0.3888f, 1.0000f}, 
+				 {0.9508f,-0.5997f,-0.3486f, 0.4833f}, 
+				};
+
+	// Config - no tilt / fail
+	float Binv_fail[8][4] = {{NAN_VALUE, 0.0f, 0.0f, 0.0f}, 
+				 {NAN_VALUE, 0.0f, 0.0f, 0.0f}, 
+				 {0.4626f,-1.0000f, 0.7943f,-0.5856f}, 
+				 {0.4594f, 0.0133f,-1.0000f,-0.4473f}, 
+				 {0.4269f, 0.2336f, 0.8321f,-0.4754f}, 
+				 {0.4352f, 0.7532f,-0.6265f,-0.3904f}, 
+				 {0.7842f, 0.5899f, 0.0943f, 1.0000f}, 
+				 {1.0000f,-0.5899f,-0.0943f, 0.8986f}, 
+				};
+
+	// Config - tilt / fail
+	float Binv_tilt_fail[8][4] = {{NAN_VALUE, 0.0f, 0.0f, 0.0f}, 
+				      {NAN_VALUE, 0.0f, 0.0f, 0.0f}, 
+				      { 0.6200f,-1.0000f, 0.6550f,-0.4814f}, 
+				      { 0.6200f, 0.0009f,-1.0000f,-0.3836f}, 
+				      { 0.3137f, 0.2147f, 0.7199f,-0.4906f}, 
+				      { 0.3583f, 0.7489f,-0.6848f,-0.4112f}, 
+				      { 1.0000f, 0.6232f, 0.2856f, 1.0000f}, 
+				      { 0.8080f,-0.5813f, 0.0160f, 0.7410f}, 
+				     };
+	// Custom mixing
+	int mixcount = 8; // number of mixed outputs
+	if ((r_status_flags & PX4IO_P_STATUS_FLAGS_MIXER_OK) != 0) {
+		for (int i = 0; i < mixcount; i++) {
+			if (fail_switch > 0.2f && tilt_switch > 0.2f) {
+				outputs[i] = Binv_tilt_fail[i][0]*thrust*1.3f + Binv_tilt_fail[i][1]*roll + Binv_tilt_fail[i][2]*pitch + Binv_tilt_fail[i][3]*yaw ;
+			} else if (fail_switch > 0.2f && tilt_switch <= 0.2f) {
+				outputs[i] = Binv_fail[i][0]*thrust*1.3f + Binv_fail[i][1]*roll + Binv_fail[i][2]*pitch + Binv_fail[i][3]*yaw ;
+			} else if (fail_switch <= 0.2f && tilt_switch > 0.2f) {
+				outputs[i] = Binv_tilt[i][0]*thrust + Binv_tilt[i][1]*roll + Binv_tilt[i][2]*pitch + Binv_tilt[i][3]*yaw ;
+			} else {
+				outputs[i] = Binv[i][0]*thrust + Binv[i][1]*roll + Binv[i][2]*pitch + Binv[i][3]*yaw ;
+			}
+			// if (fail_switch > 0.2f)	{
+			// 	outputs[i] = Binv_fail[i][0]*thrust*1.3f + Binv_fail[i][1]*roll + Binv_fail[i][2]*pitch + Binv_fail[i][3]*yaw ;
+			// } else {
+			// 	outputs[i] = Binv[i][0]*thrust + Binv[i][1]*roll + Binv[i][2]*pitch + Binv[i][3]*yaw ;
+			// }
+			outputs[i] =  -1.0f + 2.0f*outputs[i]; // output scale is eventually -1 to 1
+		}
+	}
 	in_mixer = false;
+	/* END: SCI-TECH-2018: Replace with custom mixing*/
 
 	return mixcount;
 }
@@ -298,7 +379,7 @@ mixer_tick(void)
 
 		/* mix */
 		mixed = mixer_mix_threadsafe(&outputs[0], &r_mixer_limits);
-
+		
 		/* the pwm limit call takes care of out of band errors */
 		pwm_limit_calc(should_arm, should_arm_nothrottle, mixed, r_setup_pwm_reverse, r_page_servo_disarmed,
 			       r_page_servo_control_min, r_page_servo_control_max, outputs, r_page_servos, &pwm_limit);
